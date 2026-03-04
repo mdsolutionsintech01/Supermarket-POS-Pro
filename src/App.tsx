@@ -909,24 +909,58 @@ export default function App() {
               </div>
             </div>
             
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-xl">
-              <h3 className="text-lg font-bold text-white mb-4">Sales Performance</h3>
-              <div className="h-64 flex items-end gap-2 px-4">
-                {[40, 70, 45, 90, 65, 80, 55, 75, 60, 85, 95, 50].map((h, i) => (
-                  <div key={i} className="flex-1 bg-emerald-500/20 rounded-t-lg relative group">
-                    <motion.div 
-                      initial={{ height: 0 }}
-                      animate={{ height: `${h}%` }}
-                      className="absolute bottom-0 inset-x-0 bg-emerald-500 rounded-t-lg group-hover:bg-emerald-400 transition-colors"
-                    />
-                  </div>
-                ))}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="lg:col-span-2 bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-xl">
+                <h3 className="text-lg font-bold text-white mb-4">Sales Performance</h3>
+                <div className="h-64 flex items-end gap-2 px-4">
+                  {[40, 70, 45, 90, 65, 80, 55, 75, 60, 85, 95, 50].map((h, i) => (
+                    <div key={i} className="flex-1 bg-emerald-500/20 rounded-t-lg relative group">
+                      <motion.div 
+                        initial={{ height: 0 }}
+                        animate={{ height: `${h}%` }}
+                        className="absolute bottom-0 inset-x-0 bg-emerald-500 rounded-t-lg group-hover:bg-emerald-400 transition-colors"
+                      />
+                    </div>
+                  ))}
+                </div>
+                <div className="flex justify-between mt-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
+                  <span>08:00</span>
+                  <span>12:00</span>
+                  <span>16:00</span>
+                  <span>20:00</span>
+                </div>
               </div>
-              <div className="flex justify-between mt-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
-                <span>08:00</span>
-                <span>12:00</span>
-                <span>16:00</span>
-                <span>20:00</span>
+
+              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-xl">
+                <div className="flex items-center gap-2 mb-4">
+                  <Monitor className="w-5 h-5 text-emerald-500" />
+                  <h3 className="text-lg font-bold text-white">Register Breakdown</h3>
+                </div>
+                <div className="space-y-4">
+                  {dailyReport?.registerBreakdown?.map((reg: any, i: number) => (
+                    <div key={i} className="p-4 bg-zinc-800/50 rounded-xl border border-zinc-800">
+                      <div className="flex justify-between items-start mb-2">
+                        <div>
+                          <p className="font-bold text-white">{reg.register_name}</p>
+                          <p className="text-[10px] text-zinc-500 uppercase tracking-wider">{reg.sales_count} Sales</p>
+                        </div>
+                        <span className="text-emerald-500 font-black">R {reg.revenue?.toFixed(2) || '0.00'}</span>
+                      </div>
+                      <div className="w-full bg-zinc-900 h-1.5 rounded-full overflow-hidden">
+                        <motion.div 
+                          initial={{ width: 0 }}
+                          animate={{ width: `${(reg.revenue / (dailyReport.total_revenue || 1)) * 100}%` }}
+                          className="bg-emerald-500 h-full"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                  {(!dailyReport?.registerBreakdown || dailyReport.registerBreakdown.length === 0) && (
+                    <div className="text-center py-8">
+                      <p className="text-zinc-500 text-sm italic">No register data available</p>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>

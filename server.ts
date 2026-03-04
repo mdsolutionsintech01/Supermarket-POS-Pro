@@ -67,6 +67,18 @@ db.exec(`
   );
 `);
 
+// Migration: Add register_id to sales if it doesn't exist
+try {
+  const tableInfo = db.prepare("PRAGMA table_info(sales)").all() as any[];
+  const hasRegisterId = tableInfo.some(col => col.name === 'register_id');
+  if (!hasRegisterId) {
+    db.prepare("ALTER TABLE sales ADD COLUMN register_id TEXT REFERENCES registers(id)").run();
+    console.log("Migration: Added register_id column to sales table");
+  }
+} catch (err) {
+  console.error("Migration error:", err);
+}
+
 // Seed initial settings
 const settingsCount = db.prepare('SELECT count(*) as count FROM settings').get() as { count: number };
   if (settingsCount.count === 0) {
@@ -283,7 +295,7 @@ async function startServer() {
 
   app.get('/api/reports/daily', (req, res) => {
     try {
-      const report = db.prepare(`
+      const summary = db.prepare(`
         SELECT 
           COUNT(*) as total_sales,
           SUM(total) as total_revenue,
@@ -292,7 +304,18 @@ async function startServer() {
         FROM sales
         WHERE date(created_at) = date('now')
       `).get();
-      res.json(report);
+
+      const registerBreakdown = db.prepare(`
+        SELECT 
+          r.name as register_name,
+          COUNT(s.id) as sales_count,
+          SUM(s.total) as revenue
+        FROM registers r
+        LEFT JOIN sales s ON r.id = s.register_id AND date(s.created_at) = date('now')
+        GROUP BY r.id
+      `).all();
+
+      res.json({ ...summary, registerBreakdown });
     } catch (err: any) {
       console.error('Daily report error:', err);
       res.status(500).json({ error: 'Internal server error' });
