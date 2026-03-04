@@ -1,0 +1,5 @@
+{
+  "name": "Supermarket POS Pro",
+  "description": "A high-performance supermarket POS system with barcode support, inventory management, and thermal receipt printing.",
+  "requestFramePermissions": []
+}
