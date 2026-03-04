@@ -58,6 +58,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isPrintPreviewOpen, setIsPrintPreviewOpen] = useState(false);
+  const [isPrintingPreview, setIsPrintingPreview] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card'>('cash');
   const [amountPaid, setAmountPaid] = useState<string>('');
   const [lastSale, setLastSale] = useState<any>(null);
@@ -291,6 +292,7 @@ export default function App() {
         setIsLowStockModalOpen(true);
       }
 
+      setIsPrintingPreview(false);
       setCart([]);
       setIsPaymentModalOpen(false);
       setAmountPaid('');
@@ -1054,12 +1056,25 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="p-6 bg-zinc-900 border-t border-zinc-800">
+              <div className="p-6 bg-zinc-900 border-t border-zinc-800 flex gap-3">
                 <button 
                   onClick={() => setIsPrintPreviewOpen(false)}
-                  className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-emerald-500/20"
+                  className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold py-4 rounded-xl transition-all border border-zinc-700"
                 >
-                  Close Preview
+                  Cancel
+                </button>
+                <button 
+                  onClick={() => {
+                    setIsPrintingPreview(true);
+                    setTimeout(() => {
+                      window.print();
+                      setIsPrintPreviewOpen(false);
+                    }, 100);
+                  }}
+                  className="flex-[2] bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2"
+                >
+                  <Printer className="w-5 h-5" />
+                  Print Receipt
                 </button>
               </div>
             </motion.div>
@@ -1160,11 +1175,11 @@ export default function App() {
         <div className="border-t border-b border-black border-dashed py-2 mb-4 text-xs">
           <div className="flex justify-between">
             <span>Invoice:</span>
-            <span>{lastSale?.invoiceNumber}</span>
+            <span>{isPrintingPreview ? `PREVIEW-${Date.now().toString().slice(-6)}` : lastSale?.invoiceNumber}</span>
           </div>
           <div className="flex justify-between">
             <span>Date:</span>
-            <span>{lastSale?.date}</span>
+            <span>{isPrintingPreview ? new Date().toLocaleString() : lastSale?.date}</span>
           </div>
           <div className="flex justify-between">
             <span>Cashier:</span>
@@ -1178,7 +1193,7 @@ export default function App() {
             <span className="w-1/6 text-center">Qty</span>
             <span className="w-1/3 text-right">Total</span>
           </div>
-          {lastSale?.items.map((item: any, i: number) => (
+          {(isPrintingPreview ? cart : lastSale?.items || []).map((item: any, i: number) => (
             <div key={i} className="flex justify-between mb-1">
               <span className="w-1/2 truncate">{item.name}</span>
               <span className="w-1/6 text-center">{item.quantity}</span>
@@ -1190,27 +1205,32 @@ export default function App() {
         <div className="border-t border-black border-dashed pt-2 space-y-1 text-xs">
           <div className="flex justify-between">
             <span>Subtotal:</span>
-            <span>R {lastSale?.subtotal.toFixed(2)}</span>
+            <span>R {(isPrintingPreview ? subtotal : lastSale?.subtotal || 0).toFixed(2)}</span>
           </div>
           <div className="flex justify-between">
             <span>VAT ({settings.vat_rate}%):</span>
-            <span>R {lastSale?.tax.toFixed(2)}</span>
+            <span>R {(isPrintingPreview ? tax : lastSale?.tax || 0).toFixed(2)}</span>
           </div>
           <div className="flex justify-between font-bold text-sm">
             <span>TOTAL:</span>
-            <span>R {lastSale?.total.toFixed(2)}</span>
+            <span>R {(isPrintingPreview ? total : lastSale?.total || 0).toFixed(2)}</span>
           </div>
-          <div className="flex justify-between">
-            <span>Payment ({lastSale?.paymentMethod}):</span>
-            <span>R {lastSale?.amountPaid.toFixed(2)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span>Change:</span>
-            <span>R {lastSale?.change.toFixed(2)}</span>
-          </div>
+          {!isPrintingPreview && (
+            <>
+              <div className="flex justify-between">
+                <span>Payment ({lastSale?.paymentMethod}):</span>
+                <span>R {lastSale?.amountPaid.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Change:</span>
+                <span>R {lastSale?.change.toFixed(2)}</span>
+              </div>
+            </>
+          )}
         </div>
 
         <div className="text-center mt-8 text-xs">
+          {isPrintingPreview && <p className="font-bold mb-2">*** PREVIEW ONLY ***</p>}
           <p>{settings.receipt_footer}</p>
           <p>PLEASE KEEP YOUR RECEIPT</p>
           <div className="mt-4 flex justify-center">
