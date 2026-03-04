@@ -539,9 +539,24 @@ export default function App() {
                   <ShoppingCart className="w-5 h-5 text-emerald-500" />
                   <h2 className="font-bold text-white">Current Order</h2>
                 </div>
-                <span className="bg-zinc-800 text-zinc-400 text-xs font-bold px-2 py-1 rounded-full">
-                  {cart.length} Items
-                </span>
+                <div className="flex items-center gap-2">
+                  {lastSale && (
+                    <button 
+                      onClick={() => {
+                        setIsPrintingPreview(false);
+                        setTimeout(() => window.print(), 100);
+                      }}
+                      className="text-[10px] font-bold bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white px-2 py-1 rounded transition-all flex items-center gap-1 border border-zinc-700"
+                      title="Reprint Last Receipt"
+                    >
+                      <Printer className="w-3 h-3" />
+                      Reprint Last
+                    </button>
+                  )}
+                  <span className="bg-zinc-800 text-zinc-400 text-xs font-bold px-2 py-1 rounded-full">
+                    {cart.length} Items
+                  </span>
+                </div>
               </div>
 
               {/* Cart Items */}
