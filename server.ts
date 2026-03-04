@@ -52,7 +52,21 @@ db.exec(`
     FOREIGN KEY(sale_id) REFERENCES sales(id),
     FOREIGN KEY(product_id) REFERENCES products(id)
   );
+
+  CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT
+  );
 `);
+
+// Seed initial settings
+const settingsCount = db.prepare('SELECT count(*) as count FROM settings').get() as { count: number };
+if (settingsCount.count === 0) {
+  db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run('business_name', 'SuperPOS Market');
+  db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run('business_address', '123 Supermarket Way, Cape Town');
+  db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run('business_vat', '4010203040');
+  db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run('low_stock_threshold', '10');
+}
 
 // Seed initial data if empty
 const userCount = db.prepare('SELECT count(*) as count FROM users').get() as { count: number };
@@ -80,115 +94,200 @@ async function startServer() {
   const app = express();
   app.use(express.json());
 
+  // Add basic health check
+  app.get('/api/health', (req, res) => {
+    res.json({ status: 'ok', time: new Date().toISOString() });
+  });
+
   // API Routes
   app.post('/api/login', (req, res) => {
-    const { username, password } = req.body;
-    const user = db.prepare('SELECT * FROM users WHERE username = ? AND password = ?').get(username, password) as any;
-    if (user) {
-      const { password, ...userWithoutPassword } = user;
-      res.json(userWithoutPassword);
-    } else {
-      res.status(401).json({ error: 'Invalid credentials' });
+    try {
+      const { username, password } = req.body;
+      const user = db.prepare('SELECT * FROM users WHERE username = ? AND password = ?').get(username, password) as any;
+      if (user) {
+        const { password, ...userWithoutPassword } = user;
+        res.json(userWithoutPassword);
+      } else {
+        res.status(401).json({ error: 'Invalid credentials' });
+      }
+    } catch (err: any) {
+      console.error('Login error:', err);
+      res.status(500).json({ error: 'Internal server error' });
     }
   });
 
   app.get('/api/products', (req, res) => {
-    const products = db.prepare('SELECT * FROM products').all();
-    res.json(products);
+    try {
+      const products = db.prepare('SELECT * FROM products').all();
+      res.json(products);
+    } catch (err: any) {
+      console.error('Fetch products error:', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  app.post('/api/products', (req, res) => {
+    try {
+      const { name, barcode, price, cost, stock, category } = req.body;
+      db.prepare('INSERT INTO products (id, barcode, name, price, cost, stock, category) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(uuidv4(), barcode, name, price, cost, stock, category);
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error('Add product error:', err);
+      res.status(500).json({ error: err.message });
+    }
   });
 
   app.get('/api/products/search', (req, res) => {
-    const { q } = req.query;
-    const products = db.prepare('SELECT * FROM products WHERE name LIKE ? OR barcode = ?').all(`%${q}%`, q);
-    res.json(products);
+    try {
+      const { q } = req.query;
+      const products = db.prepare('SELECT * FROM products WHERE name LIKE ? OR barcode = ?').all(`%${q}%`, q);
+      res.json(products);
+    } catch (err: any) {
+      console.error('Search products error:', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  app.get('/api/settings', (req, res) => {
+    try {
+      const settings = db.prepare('SELECT * FROM settings').all();
+      const settingsObj = settings.reduce((acc: any, curr: any) => {
+        acc[curr.key] = curr.value;
+        return acc;
+      }, {});
+      res.json(settingsObj);
+    } catch (err: any) {
+      console.error('Get settings error:', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  app.post('/api/settings', (req, res) => {
+    try {
+      const settings = req.body;
+      const transaction = db.transaction(() => {
+        for (const [key, value] of Object.entries(settings)) {
+          db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, value);
+        }
+      });
+      transaction();
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error('Save settings error:', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
   });
 
   app.post('/api/sales', (req, res) => {
-    const { items, payment, userId } = req.body;
-    
-    const transaction = db.transaction(() => {
-      const saleId = uuidv4();
-      const invoiceNumber = `INV-${Date.now()}`;
-      
-      // Calculate totals
-      let subtotal = 0;
-      let tax = 0;
-      items.forEach((item: any) => {
-        subtotal += item.price * item.quantity;
-        tax += (item.price * item.quantity) * (item.vat_rate / 100);
-      });
-      
-      const total = subtotal + tax - (payment.discount || 0);
-
-      db.prepare(`
-        INSERT INTO sales (id, invoice_number, user_id, total, subtotal, tax, discount, payment_method, amount_paid, change_amount)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        saleId, 
-        invoiceNumber, 
-        userId, 
-        total, 
-        subtotal, 
-        tax, 
-        payment.discount || 0, 
-        payment.method, 
-        payment.amountPaid, 
-        payment.amountPaid - total
-      );
-
-      const insertItem = db.prepare(`
-        INSERT INTO sale_items (id, sale_id, product_id, quantity, unit_price, total)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `);
-
-      const updateStock = db.prepare(`
-        UPDATE products SET stock = stock - ? WHERE id = ?
-      `);
-
-      items.forEach((item: any) => {
-        insertItem.run(uuidv4(), saleId, item.id, item.quantity, item.price, item.price * item.quantity);
-        updateStock.run(item.quantity, item.id);
-      });
-
-      return { saleId, invoiceNumber, total, tax, subtotal };
-    });
-
     try {
+      const { items, payment, userId } = req.body;
+      
+      const transaction = db.transaction(() => {
+        const saleId = uuidv4();
+        const invoiceNumber = `INV-${Date.now()}`;
+        
+        // Calculate totals
+        let subtotal = 0;
+        let tax = 0;
+        items.forEach((item: any) => {
+          subtotal += item.price * item.quantity;
+          tax += (item.price * item.quantity) * (item.vat_rate / 100);
+        });
+        
+        const total = subtotal + tax - (payment.discount || 0);
+
+        db.prepare(`
+          INSERT INTO sales (id, invoice_number, user_id, total, subtotal, tax, discount, payment_method, amount_paid, change_amount)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          saleId, 
+          invoiceNumber, 
+          userId, 
+          total, 
+          subtotal, 
+          tax, 
+          payment.discount || 0, 
+          payment.method, 
+          payment.amountPaid, 
+          payment.amountPaid - total
+        );
+
+        const insertItem = db.prepare(`
+          INSERT INTO sale_items (id, sale_id, product_id, quantity, unit_price, total)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `);
+
+        const updateStock = db.prepare(`
+          UPDATE products SET stock = stock - ? WHERE id = ?
+        `);
+
+        items.forEach((item: any) => {
+          insertItem.run(uuidv4(), saleId, item.id, item.quantity, item.price, item.price * item.quantity);
+          updateStock.run(item.quantity, item.id);
+        });
+
+        return { saleId, invoiceNumber, total, tax, subtotal };
+      });
+
       const result = transaction();
       res.json(result);
     } catch (err: any) {
+      console.error('Process sale error:', err);
       res.status(500).json({ error: err.message });
     }
   });
 
   app.get('/api/reports/daily', (req, res) => {
-    const report = db.prepare(`
-      SELECT 
-        COUNT(*) as total_sales,
-        SUM(total) as total_revenue,
-        SUM(tax) as total_tax,
-        SUM(discount) as total_discount
-      FROM sales
-      WHERE date(created_at) = date('now')
-    `).get();
-    res.json(report);
+    try {
+      const report = db.prepare(`
+        SELECT 
+          COUNT(*) as total_sales,
+          SUM(total) as total_revenue,
+          SUM(tax) as total_tax,
+          SUM(discount) as total_discount
+        FROM sales
+        WHERE date(created_at) = date('now')
+      `).get();
+      res.json(report);
+    } catch (err: any) {
+      console.error('Daily report error:', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
   });
 
   // Vite middleware for development
-  if (process.env.NODE_ENV !== 'production') {
+  const isProd = process.env.NODE_ENV === 'production' || fs.existsSync(path.resolve('dist'));
+  
+  if (!isProd) {
+    console.log('Starting in development mode with Vite middleware...');
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { 
+        middlewareMode: true,
+        host: '0.0.0.0',
+        port: 3000
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);
   } else {
+    console.log('Starting in production mode...');
     app.use(express.static('dist'));
-    app.get('*', (req, res) => res.sendFile(path.resolve('dist/index.html')));
+    app.get('*', (req, res) => {
+      const indexPath = path.resolve('dist/index.html');
+      if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
+      } else {
+        res.status(404).send('Production build not found. Please run npm run build.');
+      }
+    });
   }
 
   app.listen(3000, '0.0.0.0', () => {
-    console.log('Server running on http://localhost:3000');
+    console.log('Server running on http://0.0.0.0:3000');
   });
 }
 
-startServer();
+startServer().catch(err => {
+  console.error('Failed to start server:', err);
+});

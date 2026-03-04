@@ -57,31 +57,123 @@ export default function App() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [isPrintPreviewOpen, setIsPrintPreviewOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card'>('cash');
   const [amountPaid, setAmountPaid] = useState<string>('');
   const [lastSale, setLastSale] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'pos' | 'inventory' | 'reports'>('pos');
+  const [activeTab, setActiveTab] = useState<'pos' | 'inventory' | 'reports' | 'settings'>('pos');
   const [dailyReport, setDailyReport] = useState<any>(null);
+  const [isServerOnline, setIsServerOnline] = useState<boolean | null>(null);
+  const [settings, setSettings] = useState<any>({
+    business_name: 'SuperPOS Market',
+    business_address: '123 Supermarket Way, Cape Town',
+    business_vat: '4010203040',
+    low_stock_threshold: '10'
+  });
+
+  const [isAddProductModalOpen, setIsAddProductModalOpen] = useState(false);
+  const [isLowStockModalOpen, setIsLowStockModalOpen] = useState(false);
+  const [lowStockItems, setLowStockItems] = useState<Product[]>([]);
+  const [newProduct, setNewProduct] = useState({
+    name: '',
+    barcode: '',
+    price: '',
+    cost: '',
+    stock: '',
+    category: 'General'
+  });
 
   const barcodeInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (user) {
+    const checkHealth = async () => {
+      try {
+        const res = await fetch('/api/health');
+        if (res.ok) {
+          setIsServerOnline(true);
+        } else {
+          setIsServerOnline(false);
+        }
+      } catch (err) {
+        setIsServerOnline(false);
+      }
+    };
+
+    checkHealth();
+    const interval = setInterval(checkHealth, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (user && isServerOnline) {
       fetchProducts();
       fetchDailyReport();
+      fetchSettings();
     }
-  }, [user]);
+  }, [user, isServerOnline]);
+
+  const fetchSettings = async () => {
+    try {
+      const res = await fetch('/api/settings');
+      if (!res.ok) throw new Error('Failed to fetch settings');
+      const data = await res.json();
+      setSettings(data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const saveSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const res = await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(settings),
+    });
+    if (res.ok) {
+      alert('Settings saved successfully');
+    }
+  };
+
+  const handleAddProduct = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const res = await fetch('/api/products', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...newProduct,
+        price: parseFloat(newProduct.price),
+        cost: parseFloat(newProduct.cost),
+        stock: parseInt(newProduct.stock)
+      }),
+    });
+    if (res.ok) {
+      setIsAddProductModalOpen(false);
+      setNewProduct({ name: '', barcode: '', price: '', cost: '', stock: '', category: 'General' });
+      fetchProducts();
+    }
+  };
 
   const fetchProducts = async () => {
-    const res = await fetch('/api/products');
-    const data = await res.json();
-    setProducts(data);
+    try {
+      const res = await fetch('/api/products');
+      if (!res.ok) throw new Error('Failed to fetch products');
+      const data = await res.json();
+      setProducts(data);
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const fetchDailyReport = async () => {
-    const res = await fetch('/api/reports/daily');
-    const data = await res.json();
-    setDailyReport(data);
+    try {
+      const res = await fetch('/api/reports/daily');
+      if (!res.ok) throw new Error('Failed to fetch daily report');
+      const data = await res.json();
+      setDailyReport(data);
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -182,6 +274,20 @@ export default function App() {
         change: paid - total,
         date: new Date().toLocaleString()
       });
+      
+      // Check for low stock
+      const threshold = parseInt(settings.low_stock_threshold) || 10;
+      const lowStock = products.filter(p => {
+        const cartItem = cart.find(ci => ci.id === p.id);
+        const remaining = p.stock - (cartItem?.quantity || 0);
+        return remaining <= threshold;
+      });
+
+      if (lowStock.length > 0) {
+        setLowStockItems(lowStock);
+        setIsLowStockModalOpen(true);
+      }
+
       setCart([]);
       setIsPaymentModalOpen(false);
       setAmountPaid('');
@@ -211,36 +317,53 @@ export default function App() {
             <p className="text-zinc-400 text-sm">Sign in to your register</p>
           </div>
 
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div>
-              <label className="block text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-1.5">Username</label>
-              <input 
-                type="text" 
-                required
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all"
-                placeholder="Enter username"
-                value={loginData.username}
-                onChange={e => setLoginData(prev => ({ ...prev, username: e.target.value }))}
-              />
+          {isServerOnline === false ? (
+            <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 mb-6 flex flex-col items-center gap-3">
+              <AlertTriangle className="w-8 h-8 text-red-500" />
+              <div className="text-center">
+                <p className="text-red-500 font-bold">Server Offline</p>
+                <p className="text-zinc-500 text-xs mt-1">The POS API is currently unreachable. Please wait a moment while the system initializes.</p>
+              </div>
+              <button 
+                onClick={() => window.location.reload()}
+                className="text-xs bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-2 rounded-lg transition-colors"
+              >
+                Retry Connection
+              </button>
             </div>
-            <div>
-              <label className="block text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-1.5">Password</label>
-              <input 
-                type="password" 
-                required
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all"
-                placeholder="••••••••"
-                value={loginData.password}
-                onChange={e => setLoginData(prev => ({ ...prev, password: e.target.value }))}
-              />
-            </div>
-            <button 
-              type="submit"
-              className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3 rounded-xl transition-colors shadow-lg shadow-emerald-500/20"
-            >
-              Open Register
-            </button>
-          </form>
+          ) : (
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-1.5">Username</label>
+                <input 
+                  type="text" 
+                  required
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all"
+                  placeholder="Enter username"
+                  value={loginData.username}
+                  onChange={e => setLoginData(prev => ({ ...prev, username: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-1.5">Password</label>
+                <input 
+                  type="password" 
+                  required
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all"
+                  placeholder="••••••••"
+                  value={loginData.password}
+                  onChange={e => setLoginData(prev => ({ ...prev, password: e.target.value }))}
+                />
+              </div>
+              <button 
+                type="submit"
+                disabled={isServerOnline === null}
+                className="w-full bg-emerald-500 hover:bg-emerald-600 disabled:bg-zinc-800 disabled:text-zinc-600 text-white font-bold py-3 rounded-xl transition-colors shadow-lg shadow-emerald-500/20"
+              >
+                {isServerOnline === null ? 'Connecting...' : 'Open Register'}
+              </button>
+            </form>
+          )}
           
           <div className="mt-8 pt-6 border-t border-zinc-800 text-center">
             <p className="text-zinc-500 text-xs">Demo: admin / admin123 or cashier / cashier123</p>
@@ -270,28 +393,64 @@ export default function App() {
             >
               Register
             </button>
-            <button 
-              onClick={() => setActiveTab('inventory')}
-              className={cn(
-                "px-4 py-2 rounded-lg text-sm font-medium transition-all",
-                activeTab === 'inventory' ? "bg-emerald-500/10 text-emerald-500" : "text-zinc-400 hover:text-white hover:bg-zinc-800"
-              )}
-            >
-              Inventory
-            </button>
-            <button 
-              onClick={() => setActiveTab('reports')}
-              className={cn(
-                "px-4 py-2 rounded-lg text-sm font-medium transition-all",
-                activeTab === 'reports' ? "bg-emerald-500/10 text-emerald-500" : "text-zinc-400 hover:text-white hover:bg-zinc-800"
-              )}
-            >
-              Reports
-            </button>
+            {(user.role === 'admin' || user.role === 'supervisor') && (
+              <>
+                <button 
+                  onClick={() => setActiveTab('inventory')}
+                  className={cn(
+                    "px-4 py-2 rounded-lg text-sm font-medium transition-all",
+                    activeTab === 'inventory' ? "bg-emerald-500/10 text-emerald-500" : "text-zinc-400 hover:text-white hover:bg-zinc-800"
+                  )}
+                >
+                  Inventory
+                </button>
+                <button 
+                  onClick={() => setActiveTab('reports')}
+                  className={cn(
+                    "px-4 py-2 rounded-lg text-sm font-medium transition-all",
+                    activeTab === 'reports' ? "bg-emerald-500/10 text-emerald-500" : "text-zinc-400 hover:text-white hover:bg-zinc-800"
+                  )}
+                >
+                  Reports
+                </button>
+              </>
+            )}
+            {user.role === 'admin' && (
+              <button 
+                onClick={() => setActiveTab('settings')}
+                className={cn(
+                  "px-4 py-2 rounded-lg text-sm font-medium transition-all",
+                  activeTab === 'settings' ? "bg-emerald-500/10 text-emerald-500" : "text-zinc-400 hover:text-white hover:bg-zinc-800"
+                )}
+              >
+                Settings
+              </button>
+            )}
           </nav>
         </div>
 
         <div className="flex items-center gap-4">
+          {isServerOnline === false && (
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-red-500/10 border border-red-500/20 rounded-lg text-red-500 text-xs font-bold animate-pulse">
+              <AlertTriangle className="w-3.5 h-3.5" />
+              Server Offline
+            </div>
+          )}
+          
+          {products.some(p => p.stock <= (parseInt(settings.low_stock_threshold) || 10)) && (
+            <button 
+              onClick={() => {
+                const low = products.filter(p => p.stock <= (parseInt(settings.low_stock_threshold) || 10));
+                setLowStockItems(low);
+                setIsLowStockModalOpen(true);
+              }}
+              className="flex items-center gap-2 px-3 py-1.5 bg-amber-500/10 border border-amber-500/20 rounded-lg text-amber-500 text-xs font-bold hover:bg-amber-500/20 transition-all"
+            >
+              <AlertTriangle className="w-3.5 h-3.5" />
+              Low Stock Alert
+            </button>
+          )}
+
           <div className="text-right hidden sm:block">
             <p className="text-sm font-bold text-white">{user.name}</p>
             <p className="text-xs text-zinc-500 capitalize">{user.role}</p>
@@ -452,14 +611,24 @@ export default function App() {
                   </div>
                 </div>
 
-                <button 
-                  disabled={cart.length === 0}
-                  onClick={() => setIsPaymentModalOpen(true)}
-                  className="w-full bg-emerald-500 hover:bg-emerald-600 disabled:bg-zinc-800 disabled:text-zinc-600 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2"
-                >
-                  <CreditCard className="w-5 h-5" />
-                  Checkout
-                </button>
+                <div className="flex gap-2">
+                  <button 
+                    disabled={cart.length === 0}
+                    onClick={() => setIsPrintPreviewOpen(true)}
+                    className="flex-1 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-zinc-300 font-bold py-4 rounded-xl transition-all border border-zinc-700 flex items-center justify-center gap-2"
+                  >
+                    <Printer className="w-5 h-5" />
+                    Preview
+                  </button>
+                  <button 
+                    disabled={cart.length === 0}
+                    onClick={() => setIsPaymentModalOpen(true)}
+                    className="flex-[2] bg-emerald-500 hover:bg-emerald-600 disabled:bg-zinc-800 disabled:text-zinc-600 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2"
+                  >
+                    <CreditCard className="w-5 h-5" />
+                    Checkout
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -472,9 +641,19 @@ export default function App() {
                 <Package className="w-6 h-6 text-emerald-500" />
                 <h2 className="text-xl font-bold text-white">Inventory Management</h2>
               </div>
-              <button className="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-lg text-sm font-bold transition-all">
-                Add Product
-              </button>
+              <div className="relative group">
+                <button 
+                  onClick={() => setIsAddProductModalOpen(true)}
+                  className="bg-emerald-500 hover:bg-emerald-600 text-white px-8 py-3.5 rounded-2xl text-base font-black transition-all shadow-xl shadow-emerald-500/30 flex items-center gap-3 border-2 border-emerald-400/50 hover:scale-105 active:scale-95"
+                >
+                  <Plus className="w-6 h-6 stroke-[3px]" />
+                  Add New Product
+                </button>
+                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 px-3 py-1.5 bg-zinc-800 text-white text-xs font-bold rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap shadow-2xl border border-zinc-700">
+                  Register a new item in the inventory
+                  <div className="absolute top-full left-1/2 -translate-x-1/2 border-8 border-transparent border-t-zinc-800" />
+                </div>
+              </div>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left">
@@ -590,7 +769,273 @@ export default function App() {
             </div>
           </div>
         )}
+        {activeTab === 'settings' && user.role === 'admin' && (
+          <div className="max-w-2xl mx-auto bg-zinc-900 border border-zinc-800 rounded-2xl p-8 shadow-xl">
+            <h2 className="text-2xl font-bold text-white mb-8">System Settings</h2>
+            <form onSubmit={saveSettings} className="space-y-6">
+              <div className="grid grid-cols-1 gap-6">
+                <div>
+                  <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-2">Business Name</label>
+                  <input 
+                    type="text"
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                    value={settings.business_name}
+                    onChange={e => setSettings({...settings, business_name: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-2">Business Address</label>
+                  <input 
+                    type="text"
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                    value={settings.business_address}
+                    onChange={e => setSettings({...settings, business_address: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-2">VAT Number</label>
+                  <input 
+                    type="text"
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                    value={settings.business_vat}
+                    onChange={e => setSettings({...settings, business_vat: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-2">Low Stock Threshold</label>
+                  <input 
+                    type="number"
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                    value={settings.low_stock_threshold}
+                    onChange={e => setSettings({...settings, low_stock_threshold: e.target.value})}
+                  />
+                </div>
+              </div>
+              <button 
+                type="submit"
+                className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-emerald-500/20"
+              >
+                Save All Settings
+              </button>
+            </form>
+          </div>
+        )}
       </main>
+
+      {/* Add Product Modal */}
+      <AnimatePresence>
+        {isAddProductModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm no-print">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-3xl shadow-2xl overflow-hidden"
+            >
+              <div className="p-6 border-b border-zinc-800 flex items-center justify-between">
+                <h2 className="text-xl font-bold text-white">Add New Product</h2>
+                <button onClick={() => setIsAddProductModalOpen(false)} className="text-zinc-500 hover:text-white">
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+              <form onSubmit={handleAddProduct} className="p-8 space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="col-span-2">
+                    <label className="block text-xs font-bold text-zinc-500 uppercase mb-1.5">Product Name</label>
+                    <input 
+                      type="text" required
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2.5 text-white"
+                      value={newProduct.name}
+                      onChange={e => setNewProduct({...newProduct, name: e.target.value})}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-500 uppercase mb-1.5">Barcode</label>
+                    <input 
+                      type="text" required
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2.5 text-white"
+                      value={newProduct.barcode}
+                      onChange={e => setNewProduct({...newProduct, barcode: e.target.value})}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-500 uppercase mb-1.5">Category</label>
+                    <input 
+                      type="text" required
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2.5 text-white"
+                      value={newProduct.category}
+                      onChange={e => setNewProduct({...newProduct, category: e.target.value})}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-500 uppercase mb-1.5">Selling Price</label>
+                    <input 
+                      type="number" step="0.01" required
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2.5 text-white"
+                      value={newProduct.price}
+                      onChange={e => setNewProduct({...newProduct, price: e.target.value})}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-500 uppercase mb-1.5">Cost Price</label>
+                    <input 
+                      type="number" step="0.01" required
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2.5 text-white"
+                      value={newProduct.cost}
+                      onChange={e => setNewProduct({...newProduct, cost: e.target.value})}
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-xs font-bold text-zinc-500 uppercase mb-1.5">Initial Stock</label>
+                    <input 
+                      type="number" required
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2.5 text-white"
+                      value={newProduct.stock}
+                      onChange={e => setNewProduct({...newProduct, stock: e.target.value})}
+                    />
+                  </div>
+                </div>
+                <button 
+                  type="submit"
+                  className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-4 rounded-xl mt-4 transition-all"
+                >
+                  Save Product
+                </button>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Low Stock Warning Modal */}
+      <AnimatePresence>
+        {isLowStockModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm no-print">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl shadow-2xl overflow-hidden"
+            >
+              <div className="p-6 bg-amber-500/10 border-b border-amber-500/20 flex items-center gap-3">
+                <AlertTriangle className="w-6 h-6 text-amber-500" />
+                <h2 className="text-xl font-bold text-amber-500">Low Stock Warning</h2>
+              </div>
+              <div className="p-8 space-y-4">
+                <p className="text-zinc-400 text-sm">The following items are running low on stock:</p>
+                <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar">
+                  {lowStockItems.map(item => (
+                    <div key={item.id} className="flex justify-between items-center p-3 bg-zinc-800 rounded-xl border border-zinc-700">
+                      <span className="text-white font-medium">{item.name}</span>
+                      <span className="text-amber-500 font-bold">{item.stock} left</span>
+                    </div>
+                  ))}
+                </div>
+                <button 
+                  onClick={() => setIsLowStockModalOpen(false)}
+                  className="w-full bg-zinc-800 hover:bg-zinc-700 text-white font-bold py-4 rounded-xl transition-all"
+                >
+                  Acknowledge
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Print Preview Modal */}
+      <AnimatePresence>
+        {isPrintPreviewOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md no-print">
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 20 }}
+              className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+            >
+              <div className="p-6 border-b border-zinc-800 flex items-center justify-between bg-zinc-900/50">
+                <div className="flex items-center gap-2">
+                  <Printer className="w-5 h-5 text-emerald-500" />
+                  <h2 className="text-xl font-bold text-white">Receipt Preview</h2>
+                </div>
+                <button onClick={() => setIsPrintPreviewOpen(false)} className="text-zinc-500 hover:text-white p-2">
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-8 bg-zinc-950/50 flex justify-center custom-scrollbar">
+                <div className="bg-white text-black p-6 w-[80mm] shadow-2xl font-mono text-[11px] leading-tight">
+                  <div className="text-center mb-4">
+                    <h1 className="text-lg font-bold uppercase">{settings.business_name}</h1>
+                    <p className="text-[10px]">{settings.business_address}</p>
+                    <p className="text-[10px]">VAT NO: {settings.business_vat}</p>
+                    <p className="text-[10px]">TEL: +27 21 555 0123</p>
+                  </div>
+
+                  <div className="border-t border-b border-black border-dashed py-2 mb-4">
+                    <div className="flex justify-between">
+                      <span>Invoice:</span>
+                      <span>PREVIEW-{Date.now().toString().slice(-6)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Date:</span>
+                      <span>{new Date().toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Cashier:</span>
+                      <span>{user.name}</span>
+                    </div>
+                  </div>
+
+                  <div className="mb-4">
+                    <div className="flex justify-between font-bold mb-1 border-b border-black border-dotted pb-1">
+                      <span className="w-1/2">Item</span>
+                      <span className="w-1/6 text-center">Qty</span>
+                      <span className="w-1/3 text-right">Total</span>
+                    </div>
+                    {cart.map((item, i) => (
+                      <div key={i} className="flex justify-between mb-1">
+                        <span className="w-1/2 truncate">{item.name}</span>
+                        <span className="w-1/6 text-center">{item.quantity}</span>
+                        <span className="w-1/3 text-right">{(item.price * item.quantity).toFixed(2)}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="border-t border-black border-dashed pt-2 space-y-1">
+                    <div className="flex justify-between">
+                      <span>Subtotal:</span>
+                      <span>R {subtotal.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>VAT (15%):</span>
+                      <span>R {tax.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between font-bold text-sm pt-1 border-t border-black border-dotted">
+                      <span>TOTAL:</span>
+                      <span>R {total.toFixed(2)}</span>
+                    </div>
+                  </div>
+
+                  <div className="text-center mt-8 space-y-1">
+                    <p className="font-bold">*** PREVIEW ONLY ***</p>
+                    <p>THANK YOU FOR SHOPPING!</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-6 bg-zinc-900 border-t border-zinc-800">
+                <button 
+                  onClick={() => setIsPrintPreviewOpen(false)}
+                  className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-emerald-500/20"
+                >
+                  Close Preview
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Payment Modal */}
       <AnimatePresence>
@@ -676,9 +1121,9 @@ export default function App() {
       {/* Thermal Receipt (Hidden in UI, visible in print) */}
       <div className="print-only font-mono text-black p-4 w-[80mm] mx-auto bg-white">
         <div className="text-center mb-4">
-          <h1 className="text-xl font-bold uppercase">SuperPOS Market</h1>
-          <p className="text-xs">123 Supermarket Way, Cape Town</p>
-          <p className="text-xs">VAT NO: 4010203040</p>
+          <h1 className="text-xl font-bold uppercase">{settings.business_name}</h1>
+          <p className="text-xs">{settings.business_address}</p>
+          <p className="text-xs">VAT NO: {settings.business_vat}</p>
           <p className="text-xs">TEL: +27 21 555 0123</p>
         </div>
 
