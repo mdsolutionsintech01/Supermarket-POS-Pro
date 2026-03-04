@@ -67,8 +67,11 @@ export default function App() {
   const [settings, setSettings] = useState<any>({
     business_name: 'SuperPOS Market',
     business_address: '123 Supermarket Way, Cape Town',
+    business_phone: '+27 21 555 0123',
     business_vat: '4010203040',
-    low_stock_threshold: '10'
+    vat_rate: '15',
+    low_stock_threshold: '10',
+    receipt_footer: 'THANK YOU FOR SHOPPING!'
   });
 
   const [isAddProductModalOpen, setIsAddProductModalOpen] = useState(false);
@@ -793,12 +796,39 @@ export default function App() {
                   />
                 </div>
                 <div>
+                  <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-2">Business Phone</label>
+                  <input 
+                    type="text"
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                    value={settings.business_phone}
+                    onChange={e => setSettings({...settings, business_phone: e.target.value})}
+                  />
+                </div>
+                <div>
                   <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-2">VAT Number</label>
                   <input 
                     type="text"
                     className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
                     value={settings.business_vat}
                     onChange={e => setSettings({...settings, business_vat: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-2">Receipt Footer Message</label>
+                  <input 
+                    type="text"
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                    value={settings.receipt_footer}
+                    onChange={e => setSettings({...settings, receipt_footer: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-2">VAT Rate (%)</label>
+                  <input 
+                    type="number"
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                    value={settings.vat_rate}
+                    onChange={e => setSettings({...settings, vat_rate: e.target.value})}
                   />
                 </div>
                 <div>
@@ -969,7 +999,7 @@ export default function App() {
                     <h1 className="text-lg font-bold uppercase">{settings.business_name}</h1>
                     <p className="text-[10px]">{settings.business_address}</p>
                     <p className="text-[10px]">VAT NO: {settings.business_vat}</p>
-                    <p className="text-[10px]">TEL: +27 21 555 0123</p>
+                    <p className="text-[10px]">TEL: {settings.business_phone}</p>
                   </div>
 
                   <div className="border-t border-b border-black border-dashed py-2 mb-4">
@@ -1008,7 +1038,7 @@ export default function App() {
                       <span>R {subtotal.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span>VAT (15%):</span>
+                      <span>VAT ({settings.vat_rate}%):</span>
                       <span>R {tax.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between font-bold text-sm pt-1 border-t border-black border-dotted">
@@ -1019,7 +1049,7 @@ export default function App() {
 
                   <div className="text-center mt-8 space-y-1">
                     <p className="font-bold">*** PREVIEW ONLY ***</p>
-                    <p>THANK YOU FOR SHOPPING!</p>
+                    <p>{settings.receipt_footer}</p>
                   </div>
                 </div>
               </div>
@@ -1124,7 +1154,7 @@ export default function App() {
           <h1 className="text-xl font-bold uppercase">{settings.business_name}</h1>
           <p className="text-xs">{settings.business_address}</p>
           <p className="text-xs">VAT NO: {settings.business_vat}</p>
-          <p className="text-xs">TEL: +27 21 555 0123</p>
+          <p className="text-xs">TEL: {settings.business_phone}</p>
         </div>
 
         <div className="border-t border-b border-black border-dashed py-2 mb-4 text-xs">
@@ -1163,7 +1193,7 @@ export default function App() {
             <span>R {lastSale?.subtotal.toFixed(2)}</span>
           </div>
           <div className="flex justify-between">
-            <span>VAT (15%):</span>
+            <span>VAT ({settings.vat_rate}%):</span>
             <span>R {lastSale?.tax.toFixed(2)}</span>
           </div>
           <div className="flex justify-between font-bold text-sm">
@@ -1181,7 +1211,7 @@ export default function App() {
         </div>
 
         <div className="text-center mt-8 text-xs">
-          <p>THANK YOU FOR SHOPPING!</p>
+          <p>{settings.receipt_footer}</p>
           <p>PLEASE KEEP YOUR RECEIPT</p>
           <div className="mt-4 flex justify-center">
             {/* Simulated QR Code */}

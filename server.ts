@@ -61,12 +61,15 @@ db.exec(`
 
 // Seed initial settings
 const settingsCount = db.prepare('SELECT count(*) as count FROM settings').get() as { count: number };
-if (settingsCount.count === 0) {
-  db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run('business_name', 'SuperPOS Market');
-  db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run('business_address', '123 Supermarket Way, Cape Town');
-  db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run('business_vat', '4010203040');
-  db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run('low_stock_threshold', '10');
-}
+  if (settingsCount.count === 0) {
+    db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run('business_name', 'SuperPOS Market');
+    db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run('business_address', '123 Supermarket Way, Cape Town');
+    db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run('business_phone', '+27 21 555 0123');
+    db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run('business_vat', '4010203040');
+    db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run('vat_rate', '15');
+    db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run('low_stock_threshold', '10');
+    db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run('receipt_footer', 'THANK YOU FOR SHOPPING!');
+  }
 
 // Seed initial data if empty
 const userCount = db.prepare('SELECT count(*) as count FROM users').get() as { count: number };
