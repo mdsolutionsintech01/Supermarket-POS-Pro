@@ -19,11 +19,16 @@ import {
   BarChart3,
   X,
   CheckCircle2,
-  AlertTriangle
+  AlertTriangle,
+  Monitor,
+  Share2,
+  MessageCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { jsPDF } from 'jspdf';
+import html2canvas from 'html2canvas';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -50,8 +55,16 @@ interface User {
   name: string;
 }
 
+interface Register {
+  id: string;
+  name: string;
+  status: string;
+}
+
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
+  const [registers, setRegisters] = useState<Register[]>([]);
+  const [selectedRegister, setSelectedRegister] = useState<Register | null>(null);
   const [loginData, setLoginData] = useState({ username: '', password: '' });
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -113,8 +126,20 @@ export default function App() {
       fetchProducts();
       fetchDailyReport();
       fetchSettings();
+      fetchRegisters();
     }
   }, [user, isServerOnline]);
+
+  const fetchRegisters = async () => {
+    try {
+      const res = await fetch('/api/registers');
+      if (!res.ok) throw new Error('Failed to fetch registers');
+      const data = await res.json();
+      setRegisters(data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   const fetchSettings = async () => {
     try {
@@ -264,7 +289,8 @@ export default function App() {
           amountPaid: paid,
           discount: 0
         },
-        userId: user?.id
+        userId: user?.id,
+        registerId: selectedRegister?.id
       }),
     });
 
@@ -303,6 +329,66 @@ export default function App() {
       setTimeout(() => {
         window.print();
       }, 500);
+    }
+  };
+
+  const sendWhatsAppReceipt = async () => {
+    if (!lastSale) return;
+    
+    const phoneNumber = prompt("Enter customer WhatsApp number (with country code, e.g., 27123456789):");
+    if (!phoneNumber) return;
+
+    try {
+      // Generate PDF
+      const receiptElement = document.getElementById('thermal-receipt');
+      if (!receiptElement) return;
+
+      const canvas = await html2canvas(receiptElement, {
+        scale: 2,
+        backgroundColor: '#ffffff'
+      });
+      
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF({
+        unit: 'mm',
+        format: [80, 200]
+      });
+      
+      const imgProps = pdf.getImageProperties(imgData);
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+      
+      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+      
+      // In a real app, you'd upload this to a server and send the link.
+      // For this demo, we'll send a text summary and explain the PDF process.
+      const message = `*Receipt from ${settings.business_name}*\n` +
+        `Invoice: ${lastSale.invoiceNumber}\n` +
+        `Total: R ${lastSale.total.toFixed(2)}\n` +
+        `Thank you for your purchase!`;
+      
+      const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
+      
+      // If Web Share API is available and we're on mobile, we can try sharing the file
+      if (navigator.share && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+        const pdfBlob = pdf.output('blob');
+        const file = new File([pdfBlob], `receipt-${lastSale.invoiceNumber}.pdf`, { type: 'application/pdf' });
+        
+        try {
+          await navigator.share({
+            files: [file],
+            title: 'Receipt',
+            text: message
+          });
+        } catch (err) {
+          window.open(whatsappUrl, '_blank');
+        }
+      } else {
+        window.open(whatsappUrl, '_blank');
+      }
+    } catch (err) {
+      console.error('Error generating PDF:', err);
+      alert('Failed to generate PDF receipt.');
     }
   };
 
@@ -378,6 +464,57 @@ export default function App() {
     );
   }
 
+  if (user && !selectedRegister) {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center p-4">
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="w-full max-w-2xl bg-zinc-900 border border-zinc-800 rounded-3xl p-8 shadow-2xl"
+        >
+          <div className="flex flex-col items-center mb-8">
+            <div className="w-16 h-16 bg-emerald-500/10 rounded-full flex items-center justify-center mb-4">
+              <Monitor className="text-emerald-500 w-8 h-8" />
+            </div>
+            <h1 className="text-2xl font-bold text-white">Select Cash Register</h1>
+            <p className="text-zinc-400 text-sm">Choose the terminal you are operating from</p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {registers.map(reg => (
+              <button
+                key={reg.id}
+                onClick={() => setSelectedRegister(reg)}
+                className="flex flex-col items-center gap-4 p-8 bg-zinc-800 border border-zinc-700 rounded-2xl hover:border-emerald-500 hover:bg-emerald-500/5 transition-all group"
+              >
+                <div className="w-12 h-12 bg-zinc-900 rounded-xl flex items-center justify-center group-hover:bg-emerald-500/10 transition-colors">
+                  <Monitor className="w-6 h-6 text-zinc-500 group-hover:text-emerald-500" />
+                </div>
+                <div className="text-center">
+                  <p className="font-bold text-white">{reg.name}</p>
+                  <p className="text-xs text-zinc-500 font-mono">{reg.id}</p>
+                </div>
+              </button>
+            ))}
+          </div>
+
+          <div className="mt-8 pt-6 border-t border-zinc-800 flex justify-between items-center">
+            <div className="flex items-center gap-2 text-zinc-500 text-xs">
+              <User className="w-4 h-4" />
+              <span>Logged in as: <strong>{user.name}</strong></span>
+            </div>
+            <button 
+              onClick={() => setUser(null)}
+              className="text-xs text-zinc-500 hover:text-red-400 font-bold uppercase tracking-widest"
+            >
+              Logout
+            </button>
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans">
       {/* Header */}
@@ -386,6 +523,11 @@ export default function App() {
           <div className="flex items-center gap-2">
             <ShoppingCart className="text-emerald-500 w-6 h-6" />
             <span className="font-bold text-xl tracking-tight">SuperPOS</span>
+            <div className="h-4 w-px bg-zinc-800 mx-2" />
+            <div className="flex items-center gap-2 bg-zinc-800 px-3 py-1 rounded-full border border-zinc-700">
+              <Monitor className="w-3.5 h-3.5 text-emerald-500" />
+              <span className="text-[10px] font-bold text-zinc-300 uppercase tracking-wider">{selectedRegister?.name}</span>
+            </div>
           </div>
           
           <nav className="flex items-center gap-1">
@@ -1166,12 +1308,23 @@ export default function App() {
                   </div>
                 )}
 
-                <button 
-                  onClick={processSale}
-                  className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-black py-5 rounded-2xl text-lg transition-all shadow-xl shadow-emerald-500/20"
-                >
-                  Complete Transaction
-                </button>
+                <div className="flex gap-3">
+                  <button 
+                    onClick={processSale}
+                    className="flex-[2] bg-emerald-500 hover:bg-emerald-600 text-white font-black py-5 rounded-2xl text-lg transition-all shadow-xl shadow-emerald-500/20"
+                  >
+                    Complete Transaction
+                  </button>
+                  {lastSale && (
+                    <button 
+                      onClick={sendWhatsAppReceipt}
+                      className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-emerald-500 font-bold py-5 rounded-2xl transition-all border border-zinc-700 flex flex-col items-center justify-center gap-1"
+                    >
+                      <MessageCircle className="w-6 h-6" />
+                      <span className="text-[10px] uppercase tracking-widest">WhatsApp</span>
+                    </button>
+                  )}
+                </div>
               </div>
             </motion.div>
           </div>
@@ -1179,7 +1332,7 @@ export default function App() {
       </AnimatePresence>
 
       {/* Thermal Receipt (Hidden in UI, visible in print) */}
-      <div className="print-only font-mono text-black p-4 w-[80mm] mx-auto bg-white">
+      <div id="thermal-receipt" className="print-only font-mono text-black p-4 w-[80mm] mx-auto bg-white">
         <div className="text-center mb-4">
           <h1 className="text-xl font-bold uppercase">{settings.business_name}</h1>
           <p className="text-xs">{settings.business_address}</p>

@@ -28,10 +28,17 @@ db.exec(`
     vat_rate REAL DEFAULT 15.0
   );
 
+  CREATE TABLE IF NOT EXISTS registers (
+    id TEXT PRIMARY KEY,
+    name TEXT UNIQUE,
+    status TEXT DEFAULT 'active'
+  );
+
   CREATE TABLE IF NOT EXISTS sales (
     id TEXT PRIMARY KEY,
     invoice_number TEXT UNIQUE,
     user_id TEXT,
+    register_id TEXT,
     total REAL,
     subtotal REAL,
     tax REAL,
@@ -39,7 +46,8 @@ db.exec(`
     payment_method TEXT,
     amount_paid REAL,
     change_amount REAL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(register_id) REFERENCES registers(id)
   );
 
   CREATE TABLE IF NOT EXISTS sale_items (
@@ -91,6 +99,27 @@ if (userCount.count === 0) {
 
   const insertProduct = db.prepare('INSERT INTO products (id, barcode, name, price, cost, stock, category) VALUES (?, ?, ?, ?, ?, ?, ?)');
   products.forEach(p => insertProduct.run(uuidv4(), p.barcode, p.name, p.price, p.cost, p.stock, p.category));
+
+  // Seed initial registers
+  const registers = [
+    { id: 'REG-01', name: 'Main Counter' },
+    { id: 'REG-02', name: 'Express Lane' },
+    { id: 'REG-03', name: 'Bakery Counter' },
+  ];
+  const insertRegister = db.prepare('INSERT INTO registers (id, name) VALUES (?, ?)');
+  registers.forEach(r => insertRegister.run(r.id, r.name));
+}
+
+// Seed registers if table is empty (even if users exist)
+const regCount = db.prepare('SELECT count(*) as count FROM registers').get() as { count: number };
+if (regCount.count === 0) {
+  const registers = [
+    { id: 'REG-01', name: 'Main Counter' },
+    { id: 'REG-02', name: 'Express Lane' },
+    { id: 'REG-03', name: 'Bakery Counter' },
+  ];
+  const insertRegister = db.prepare('INSERT INTO registers (id, name) VALUES (?, ?)');
+  registers.forEach(r => insertRegister.run(r.id, r.name));
 }
 
 async function startServer() {
@@ -182,9 +211,19 @@ async function startServer() {
     }
   });
 
+  app.get('/api/registers', (req, res) => {
+    try {
+      const registers = db.prepare("SELECT * FROM registers WHERE status = 'active'").all();
+      res.json(registers);
+    } catch (err: any) {
+      console.error('Fetch registers error:', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
   app.post('/api/sales', (req, res) => {
     try {
-      const { items, payment, userId } = req.body;
+      const { items, payment, userId, registerId } = req.body;
       
       const transaction = db.transaction(() => {
         const saleId = uuidv4();
@@ -201,12 +240,13 @@ async function startServer() {
         const total = subtotal + tax - (payment.discount || 0);
 
         db.prepare(`
-          INSERT INTO sales (id, invoice_number, user_id, total, subtotal, tax, discount, payment_method, amount_paid, change_amount)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO sales (id, invoice_number, user_id, register_id, total, subtotal, tax, discount, payment_method, amount_paid, change_amount)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           saleId, 
           invoiceNumber, 
           userId, 
+          registerId,
           total, 
           subtotal, 
           tax, 
